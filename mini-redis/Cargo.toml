@@ -1,0 +1,22 @@
+[package]
+authors = ["Harshavardhan Kolhatkar <kolhatkarh@gmail.com>"]
+edition = "2021"
+version = "0.0.1"
+license = "MIT"
+name = "mini-redis"
+description = """
+A toy implementation of a Rust client and server for Redis,
+a fast, in-memory database.
+"""
+
+[[bin]]
+name = "mini-redis-client"
+path = "src/bin/client.rs"
+
+[[bin]]
+name = "mini-redis-server"
+path = "src/bin/server.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+bytes = "1"

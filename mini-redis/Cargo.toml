@@ -20,3 +20,5 @@ path = "src/bin/server.rs"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 bytes = "1"
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5"

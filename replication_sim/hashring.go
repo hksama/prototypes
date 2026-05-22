@@ -3,8 +3,10 @@
 // HashRing implements consistent hashing for the Dynamo simulation.
 //
 // How it works:
-//  1. Each physical node is mapped to multiple positions ("virtual nodes")
-//     on a uint32 hash ring. This improves key distribution uniformity.
+//  1. Each physical node is mapped to node.VnodeCount positions ("virtual nodes")
+//     on a uint32 hash ring.  VnodeCount is set proportionally to the node's
+//     hardware capacity by BuildTopology, so more powerful nodes occupy a
+//     larger slice of the key-space.
 //  2. A key is hashed to a point on the ring, and we walk clockwise to
 //     find R distinct *physical* nodes. These become the key's replicas.
 //  3. The hash function uses SHA-256, truncated to 4 bytes → uint32.
@@ -30,27 +32,27 @@ type vnode struct {
 // HashRing holds the sorted ring of virtual nodes and a lookup
 // table from node-ID → *Node for quick access.
 type HashRing struct {
-	ring    []vnode          // sorted by hash
-	nodeMap map[int]*Node    // nodeID → *Node
-	vnodes  int              // virtual nodes per physical node
+	ring    []vnode       // sorted by hash
+	nodeMap map[int]*Node // nodeID → *Node
 }
 
 // ------------------- constructor -------------------
 
 // NewHashRing builds a consistent-hash ring from the given nodes.
-// vnodes controls how many virtual positions each physical node occupies.
-// A higher value (e.g. 100–150) gives better distribution at the cost of
-// a slightly larger ring.
-func NewHashRing(nodes []*Node, vnodes int) *HashRing {
+//
+// The number of virtual positions each node occupies is taken directly from
+// node.VnodeCount, which was set by BuildTopology proportionally to that
+// node's hardware capacity.  This means high-capacity nodes naturally own
+// more of the ring (and therefore more keys) than low-capacity ones.
+func NewHashRing(nodes []*Node) *HashRing {
 	hr := &HashRing{
 		nodeMap: make(map[int]*Node, len(nodes)),
-		vnodes:  vnodes,
 	}
 
 	for _, n := range nodes {
 		hr.nodeMap[n.ID] = n
-		// Create `vnodes` virtual entries for this physical node.
-		for v := 0; v < vnodes; v++ {
+		// Create node.VnodeCount virtual entries for this physical node.
+		for v := 0; v < n.VnodeCount; v++ {
 			label := fmt.Sprintf("node-%d-vn-%d", n.ID, v)
 			hr.ring = append(hr.ring, vnode{
 				hash:   hashKey(label),

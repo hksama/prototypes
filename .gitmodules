@@ -1,0 +1,3 @@
+[submodule "dynamodb-algos"]
+	path = dynamodb-algos
+	url = https://github.com/hksama/dynamodb-algos.git

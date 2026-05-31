@@ -1,4 +1,5 @@
 // use crate::protocol::server::Commands;
+use crate::protocol::resp::Command;
 use std::{
     error::Error,
     io::{stdout, Write},
@@ -59,7 +60,7 @@ pub fn event_loop() {
                     println!("GET requires key");
                     continue;
                 }
-                handle_get_client(Commands::GET(cmd_args[1].to_owned()), Some(&cmd_args[2..]))
+                handle_get_client(Command::GET(cmd_args[1].to_owned()), Some(&cmd_args[2..]))
             }
             "SET" | "set" => {
                 if cmd_args.len() < 3 {
@@ -67,7 +68,7 @@ pub fn event_loop() {
                     continue;
                 }
                 handle_set_client(
-                    Commands::SET(cmd_args[1].to_owned(), cmd_args[2].to_owned()),
+                    Command::SET(cmd_args[1].to_owned(), cmd_args[2].to_owned()),
                     Some(&cmd_args[3..]),
                 )
             }
@@ -76,7 +77,7 @@ pub fn event_loop() {
                     println!("DEL requires key");
                     continue;
                 }
-                handle_del_client(Commands::DEL(cmd_args[1].to_owned()), Some(&cmd_args[2..]))
+                handle_del_client(Command::DEL(cmd_args[1].to_owned()), Some(&cmd_args[2..]))
             }
             "PING" | "ping" => {
                 handle_ping_client();
@@ -90,15 +91,15 @@ pub fn event_loop() {
     }
 }
 
-fn handle_get_client(cmd: Commands, flags: Option<&[&str]>) {
+fn handle_get_client(cmd: Command, flags: Option<&[&str]>) {
     // check what flags can be passed
 }
 
-fn handle_set_client(cmd_args: Commands, flags: Option<&[&str]>) {
+fn handle_set_client(cmd_args: Command, flags: Option<&[&str]>) {
     // check what flags can be passed
 }
 
-fn handle_del_client(cmd_args: Commands, flags: Option<&[&str]>) {
+fn handle_del_client(cmd_args: Command, flags: Option<&[&str]>) {
     // check what flags can be passed
 }
 

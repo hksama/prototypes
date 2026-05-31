@@ -1,3 +1,6 @@
 [submodule "dynamodb-algos"]
 	path = dynamodb-algos
 	url = https://github.com/hksama/dynamodb-algos.git
+[submodule "buerdb"]
+	path = buerdb
+	url = https://github.com/hksama/buerdb.git

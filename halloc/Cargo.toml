@@ -8,5 +8,7 @@ description = "Learning allocator focused on Redis-like workloads"
 readme = "README.md"
 
 [dependencies]
+libc = "0.2.186"
+thiserror = "2.0.18"
 
 [dev-dependencies]

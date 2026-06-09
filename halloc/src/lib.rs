@@ -1,8 +1,13 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::ops::Mul;
-use std::sync::{Arc,atomic::{AtomicU64, Ordering, AtomicUsize}};
+use std::io::Error;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+};
+use thiserror::Error;
+use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE, c_void, mmap};
 
 // Define size classes for small allocations. These are approximately logarithmically spaced.
 const SIZE_CLASSES: [usize; 16] = [
@@ -32,10 +37,10 @@ impl BumpAllocator {
     /// Create a new bump allocator by allocating `capacity` bytes from the system.
     pub fn new(capacity: usize) -> Option<Self> {
         // For now, use System allocator to get the initial block
-        let layout = Layout::from_size_align(capacity, 8).ok()?;
-        let start = unsafe {
-            std::alloc::alloc(layout) as *mut u8
-        };
+        let layout = Layout::from_size_align(capacity, 4).ok()?;
+        // println!("{:?}",layout);
+        let start = unsafe { std::alloc::alloc(layout) as *mut u8 };
+        // println!("start:{:?} and as usize {}",start, start as usize);
         if start.is_null() {
             return None;
         }
@@ -45,10 +50,9 @@ impl BumpAllocator {
             next: Arc::new(AtomicUsize::new(0)),
         })
     }
-} 
+}
 
-
-impl CoreAllocator for BumpAllocator{
+impl CoreAllocator for BumpAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = layout.size();
         // let alignment = layout.align();
@@ -62,24 +66,27 @@ impl CoreAllocator for BumpAllocator{
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         // Bump allocator does not deallocate individual blocks.
         // Special case is when deallocating the block with same address as where pointer is currently pointing at.
-        // let heap_start = self.start as usize; 
+        // let heap_start = self.start as usize;
         // match ptr as usize{
-            
+
         // }
         let size = layout.size();
         let current_addr = self.next.load(Ordering::Relaxed);
-        if ptr as usize == current_addr{
+        if ptr as usize == current_addr {
             self.next.fetch_sub(size, Ordering::Relaxed);
         }
-
     }
 }
+
+
 impl Drop for BumpAllocator {
     fn drop(&mut self) {
-        let layout = Layout::from_size_align(self.next.load(Ordering::Relaxed) - self.start as usize, 8).unwrap();
-        unsafe {
-            std::alloc::dealloc(self.start, layout);
-        }
+        // let layout =
+        //     Layout::from_size_align(self.next.load(Ordering::Relaxed) - self.start as usize, 8)
+        //         .unwrap();
+        // unsafe {
+        //     std::alloc::dealloc(self.start, layout);
+        // }
     }
 }
 
@@ -149,18 +156,49 @@ impl Counters {
     }
 
     fn snapshot(&self) -> StatsSnapshot {
-    let allocs = std::array::from_fn(|i| self.allocs[i].load(Ordering::Relaxed));
-    let deallocs = std::array::from_fn(|i| self.deallocs[i].load(Ordering::Relaxed));
+        let allocs = std::array::from_fn(|i| self.allocs[i].load(Ordering::Relaxed));
+        let deallocs = std::array::from_fn(|i| self.deallocs[i].load(Ordering::Relaxed));
 
-    StatsSnapshot {
-        allocs,
-        deallocs,
-        large_allocs: self.large_allocs.load(Ordering::Relaxed),
-        large_deallocs: self.large_deallocs.load(Ordering::Relaxed),
-        bytes_allocated: self.bytes_allocated.load(Ordering::Relaxed),
-        bytes_deallocated: self.bytes_deallocated.load(Ordering::Relaxed),
+        StatsSnapshot {
+            allocs,
+            deallocs,
+            large_allocs: self.large_allocs.load(Ordering::Relaxed),
+            large_deallocs: self.large_deallocs.load(Ordering::Relaxed),
+            bytes_allocated: self.bytes_allocated.load(Ordering::Relaxed),
+            bytes_deallocated: self.bytes_deallocated.load(Ordering::Relaxed),
+        }
     }
 }
+
+pub struct ArenaAlloc{
+    
+}
+
+
+unsafe fn bootstrap_memory()->Result<*mut c_void,HallocErrors> {
+    let null_ptr:*mut c_void = std::ptr::null_mut();
+    let prot_bits = PROT_WRITE | PROT_READ;
+    let flag_bits = MAP_SHARED|MAP_ANONYMOUS;
+    unsafe {
+        let mem_ptr = mmap(null_ptr, 1000000_usize, prot_bits, flag_bits, -1, 0);
+        
+        match mem_ptr {
+            MAP_FAILED =>{
+                Err(HallocErrors::MapFailed)
+            } 
+            _=>{
+                Ok(mem_ptr)
+            }
+        }
+            // println!("Error: {}", Error::last_os_error());
+        
+    }
+}
+
+#[derive(Error,Debug)]
+enum HallocErrors {
+    #[error("failed to read the configuration file")]
+    MapFailed
 }
 
 pub struct Halloc {
@@ -184,6 +222,7 @@ impl Halloc {
 unsafe impl GlobalAlloc for Halloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = layout.size();
+        // println!("Allocating {} bytes", size);
         self.counters
             .bytes_allocated
             .fetch_add(size as u64, Ordering::Relaxed);
@@ -211,17 +250,13 @@ unsafe impl GlobalAlloc for Halloc {
                 self.counters.deallocs[index].fetch_add(1, Ordering::Relaxed);
             }
             None => {
-                self.counters
-                    .large_deallocs
-                    .fetch_add(1, Ordering::Relaxed);
+                self.counters.large_deallocs.fetch_add(1, Ordering::Relaxed);
             }
         }
 
         unsafe { self.system.dealloc(ptr, layout) }
     }
 }
-
-
 
 //returns the class index for a given size, or None if the size is larger than the largest class
 fn class_index(size: usize) -> Option<usize> {
@@ -254,20 +289,20 @@ mod tests {
         let allocator = Halloc::new();
 
         // Allocate and deallocate some memory
-        let mut layout_list:Vec<Layout> = Vec::new();
-        
+        let mut layout_list: Vec<Layout> = Vec::new();
+
         // layout_list.push(Layout::from_size_align(16, 8).unwrap());
         layout_list.push(Layout::from_size_align(48, 8).unwrap());
-        layout_list.push(Layout::from_size_align(160, 16).unwrap());   
+        layout_list.push(Layout::from_size_align(160, 16).unwrap());
         for layout in layout_list {
-        unsafe {
-            let ptr = allocator.alloc(layout);
-            assert!(!ptr.is_null());
-            allocator.dealloc(ptr, layout);
+            unsafe {
+                let ptr = allocator.alloc(layout);
+                assert!(!ptr.is_null());
+                allocator.dealloc(ptr, layout);
+            }
         }
-    }
-        let stats = allocator.stats();
-        println!("{:#?}", stats);
+        // let stats = allocator.stats();
+        // println!("{:#?}", stats);
         // assert_eq!(stats.allocs[1], 1); // 16 bytes falls into class index 1
         // assert_eq!(stats.deallocs[1], 1);
         // assert_eq!(stats.large_allocs, 0);
@@ -275,4 +310,35 @@ mod tests {
         // assert_eq!(stats.bytes_allocated, 16);
         // assert_eq!(stats.bytes_deallocated, 16);
     }
+
+    #[test]
+    fn understand_ptr_arithmetic() {
+        let allocator = BumpAllocator::new(1024).unwrap();
+        let layout1 = Layout::from_size_align(16, 8).unwrap();
+        let layout2 = Layout::from_size_align(32, 8).unwrap();
+
+        unsafe {
+            let ptr1 = allocator.alloc(layout1);
+            let ptr2 = allocator.alloc(layout2);
+
+            // println!("ptr1: {:?} and usize is {}", ptr1, ptr1 as usize);
+            // println!("ptr2: {:?} and usize is {}", ptr2, ptr2 as usize);
+
+            // Check that ptr2 is exactly 16 bytes ahead of ptr1
+            assert_eq!((ptr1 as usize) + 16, ptr2 as usize);
+        }
+    }
+
+    #[test]
+    fn test_bootstrap_memory()->Result<(),HallocErrors>{
+        unsafe {   
+            let initial_ptr= bootstrap_memory()?;
+            *(initial_ptr as *mut u64)= 123;
+            assert_eq!(*(initial_ptr as *mut u64), 123);
+            println!("{:?} is the initial pointer",initial_ptr);
+            Ok(())
+        }
+    }
 }
+
+

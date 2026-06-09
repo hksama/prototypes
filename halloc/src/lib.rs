@@ -1,13 +1,14 @@
 #![forbid(unsafe_op_in_unsafe_fn)]
+//  Forces the compiler to treat any unsafe operation inside an unsafe fn as a compile-time error unless it is explicitly wrapped in an unsafe {} block.
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::io::Error;
 use std::sync::{
-    Arc,
-    atomic::{AtomicU64, AtomicUsize, Ordering},
+    atomic::{AtomicU64, Ordering},
 };
+use crate::allocators::bump::BumpAllocator;
 use thiserror::Error;
 use libc::{MAP_ANONYMOUS, MAP_FAILED, MAP_SHARED, PROT_READ, PROT_WRITE, c_void, mmap};
+pub mod allocators;
 
 // Define size classes for small allocations. These are approximately logarithmically spaced.
 const SIZE_CLASSES: [usize; 16] = [
@@ -15,8 +16,9 @@ const SIZE_CLASSES: [usize; 16] = [
 ];
 const NUM_CLASSES: usize = SIZE_CLASSES.len();
 
-/// Core allocator interface. Each strategy (Bump, Arena, FreeList) implements this.
-pub trait CoreAllocator {
+/// Allocator Strategy Interface. Each strategy (Bump, Arena, FreeList) implements this.
+//Todo: Implement for Send and Sync to allow multi-threaded access. This may require internal synchronization in some strategies.
+pub trait AllocatorStrategy {
     /// Allocate memory according to layout.
     /// Returns null on failure.
     unsafe fn alloc(&self, layout: Layout) -> *mut u8;
@@ -24,70 +26,6 @@ pub trait CoreAllocator {
     /// Deallocate memory.
     /// SAFETY: ptr must be from a prior alloc() call with the same layout.
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout);
-}
-
-pub struct BumpAllocator {
-    /// Start of the allocated region
-    start: *mut u8,
-    /// Current position, Arc for thread-safe updates, AtomicUsize for lock-free increments
-    next: Arc<AtomicUsize>,
-}
-
-impl BumpAllocator {
-    /// Create a new bump allocator by allocating `capacity` bytes from the system.
-    pub fn new(capacity: usize) -> Option<Self> {
-        // For now, use System allocator to get the initial block
-        let layout = Layout::from_size_align(capacity, 4).ok()?;
-        // println!("{:?}",layout);
-        let start = unsafe { std::alloc::alloc(layout) as *mut u8 };
-        // println!("start:{:?} and as usize {}",start, start as usize);
-        if start.is_null() {
-            return None;
-        }
-
-        Some(Self {
-            start,
-            next: Arc::new(AtomicUsize::new(0)),
-        })
-    }
-}
-
-impl CoreAllocator for BumpAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let size = layout.size();
-        // let alignment = layout.align();
-        let heap_start = self.start as usize;
-
-        // Calculate the next aligned address
-        let updated_next = self.next.fetch_add(size, Ordering::Relaxed);
-        // (heap_start+updated_next) as *mut u8
-        updated_next as *mut u8
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // Bump allocator does not deallocate individual blocks.
-        // Special case is when deallocating the block with same address as where pointer is currently pointing at.
-        // let heap_start = self.start as usize;
-        // match ptr as usize{
-
-        // }
-        let size = layout.size();
-        let current_addr = self.next.load(Ordering::Relaxed);
-        if ptr as usize == current_addr {
-            self.next.fetch_sub(size, Ordering::Relaxed);
-        }
-    }
-}
-
-
-impl Drop for BumpAllocator {
-    fn drop(&mut self) {
-        // let layout =
-        //     Layout::from_size_align(self.next.load(Ordering::Relaxed) - self.start as usize, 8)
-        //         .unwrap();
-        // unsafe {
-        //     std::alloc::dealloc(self.start, layout);
-        // }
-    }
 }
 
 #[derive(Debug)]
@@ -170,11 +108,8 @@ impl Counters {
     }
 }
 
-pub struct ArenaAlloc{
-    
-}
 
-
+/// Method to call mmap and get a large block of memory for bootstrapping the allocator; used by all allocators to get their initial memory region. 
 unsafe fn bootstrap_memory()->Result<*mut c_void,HallocErrors> {
     let null_ptr:*mut c_void = std::ptr::null_mut();
     let prot_bits = PROT_WRITE | PROT_READ;
@@ -195,9 +130,11 @@ unsafe fn bootstrap_memory()->Result<*mut c_void,HallocErrors> {
     }
 }
 
+
+/// Errors enum for the halloc crate.
 #[derive(Error,Debug)]
 enum HallocErrors {
-    #[error("failed to read the configuration file")]
+    #[error("Failed to perform mmap.")]
     MapFailed
 }
 
@@ -339,6 +276,43 @@ mod tests {
             Ok(())
         }
     }
+
+    /// Common Test suite for all allocators. Each test should be run against each strategy. 
+    #[test]
+    fn alloc1byte() {
+    }
+
+    #[test]
+    fn alloc8bytes() {
+    }
+
+    #[test]
+    fn alloc16bytes() {
+    }
+
+    #[test]
+    fn alloc1mb() {
+    }
+
+    //todo: Break down into more granular tests for fragmentation, edge cases, etc.
+    #[test]
+    fn alignmentchecks() {
+    }
+
+    #[test]
+    fn doublefree() {
+    }
+
+    #[test]
+    fn stresstest() {
+    }
+
+    #[test]
+    fn randomalloc_free() {
+    }
+    //todo: add more tests for edge cases, fragmentation, multi-threaded access, etc.
+
+
 }
 
 

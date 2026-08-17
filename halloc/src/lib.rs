@@ -110,12 +110,12 @@ impl Counters {
 
 
 /// Method to call mmap and get a large block of memory for bootstrapping the allocator; used by all allocators to get their initial memory region. 
-unsafe fn bootstrap_memory()->Result<*mut c_void,HallocErrors> {
-    let null_ptr:*mut c_void = std::ptr::null_mut();
+unsafe fn bootstrap_memory(alloc_size: usize) -> Result<*mut c_void, HallocErrors> {
+    let null_ptr: *mut c_void = std::ptr::null_mut();
     let prot_bits = PROT_WRITE | PROT_READ;
     let flag_bits = MAP_SHARED|MAP_ANONYMOUS;
     unsafe {
-        let mem_ptr = mmap(null_ptr, 1000000_usize, prot_bits, flag_bits, -1, 0);
+        let mem_ptr = mmap(null_ptr, alloc_size, prot_bits, flag_bits, -1, 0);
         
         match mem_ptr {
             MAP_FAILED =>{
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn test_bootstrap_memory()->Result<(),HallocErrors>{
         unsafe {   
-            let initial_ptr= bootstrap_memory()?;
+            let initial_ptr= bootstrap_memory(1000000 as usize)?;
             *(initial_ptr as *mut u64)= 123;
             assert_eq!(*(initial_ptr as *mut u64), 123);
             println!("{:?} is the initial pointer",initial_ptr);

@@ -1,6 +1,6 @@
 use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
 use std::alloc::Layout;
-use crate::{AllocatorWrapper, request_memory_by_mmap};
+use crate::{AllocatorStrategy, bootstrap_memory};
 pub struct BumpAllocator {
     /// Start of the allocated region
     start: Arc<usize>,
@@ -22,7 +22,7 @@ impl BumpAllocator {
         // if start.is_null() {
         //     return None;
         // }
-        let bootstrap_ptr = unsafe{request_memory_by_mmap(MEM_EXTEND_SIZE).ok()?} as usize;
+        let bootstrap_ptr = unsafe{bootstrap_memory(MEM_EXTEND_SIZE).ok()?} as usize;
 
         Some(Self {
             start: Arc::new(bootstrap_ptr),
@@ -32,7 +32,7 @@ impl BumpAllocator {
     }
 }
 
-impl AllocatorWrapper for BumpAllocator {
+impl AllocatorStrategy for BumpAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let size = layout.size();
         let alignment = layout.align();
